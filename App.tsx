@@ -49,7 +49,8 @@ const App: React.FC = () => {
 
   // Check for API Key on mount
   useEffect(() => {
-    if (!process.env.API_KEY) {
+    // Check if process is defined to avoid ReferenceError in some environments
+    if (typeof process === 'undefined' || !process.env || !process.env.API_KEY) {
       setMissingApiKey(true);
       setTimeout(() => {
         addLog("CRITICAL: API Key is missing. Image generation will fail.", 'error');
@@ -79,7 +80,7 @@ const App: React.FC = () => {
   }, [history]);
 
   const handleGenerate = async () => {
-    if (!process.env.API_KEY) {
+    if (typeof process === 'undefined' || !process.env || !process.env.API_KEY) {
       const msg = "Thiếu API Key. Vui lòng kiểm tra cấu hình môi trường.";
       setMissingApiKey(true);
       alert(msg);
@@ -137,10 +138,29 @@ const App: React.FC = () => {
       setCurrentImageId(timestamp);
 
     } catch (error: any) {
-      console.error(error);
-      const errorMsg = error.message || "Unknown error";
-      addLog(`Generation Failed: ${errorMsg}`, 'error', JSON.stringify(error, null, 2));
-      alert("Đã xảy ra lỗi khi tạo hình ảnh. Vui lòng kiểm tra log.");
+      console.error("Generation error:", error);
+      
+      let errorMsg = "An unknown error occurred";
+      let details = "";
+
+      if (error) {
+          if (error instanceof Error) {
+              errorMsg = error.message;
+              details = error.stack || "";
+          } else if (typeof error === 'string') {
+              errorMsg = error;
+          } else if (typeof error === 'object') {
+              try {
+                  details = JSON.stringify(error, null, 2);
+                  if (details === '{}' || !details) details = String(error);
+              } catch (e) {
+                  details = String(error);
+              }
+          }
+      }
+
+      addLog(`Generation Failed: ${errorMsg}`, 'error', details);
+      alert(`Đã xảy ra lỗi khi tạo hình ảnh. Vui lòng kiểm tra log để biết thêm chi tiết.`);
     } finally {
       setIsGenerating(false);
     }
