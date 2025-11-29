@@ -1,10 +1,11 @@
+
 import React, { useState, useEffect } from 'react';
 import ControlPanel from './components/ControlPanel';
 import PreviewArea from './components/PreviewArea';
 import LogViewer from './components/LogViewer';
 import { ArtStyle, CharacterConfig, GeneratedImage, ViewAngle, LogEntry, LogLevel } from './types';
 import { generateCharacterImage, buildPrompt } from './services/geminiService';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, X, Key, Save } from 'lucide-react';
 
 const App: React.FC = () => {
   const [config, setConfig] = useState<CharacterConfig>({
@@ -30,6 +31,11 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<GeneratedImage[]>([]);
   const [missingApiKey, setMissingApiKey] = useState(false);
   
+  // API Key State
+  const [userApiKey, setUserApiKey] = useState<string>("");
+  const [showSettings, setShowSettings] = useState(false);
+  const [tempApiKey, setTempApiKey] = useState("");
+
   // Log State
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLogOpen, setIsLogOpen] = useState(false);
@@ -47,20 +53,30 @@ const App: React.FC = () => {
 
   const clearLogs = () => setLogs([]);
 
-  // Check for API Key on mount
+  // Check for API Key on mount (User > Env)
   useEffect(() => {
-    // Check if process is defined to avoid ReferenceError in some environments
-    if (typeof process === 'undefined' || !process.env || !process.env.API_KEY) {
+    const storedKey = localStorage.getItem('user_gemini_api_key');
+    const envKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : '';
+
+    if (storedKey) {
+      setUserApiKey(storedKey);
+      setTempApiKey(storedKey);
+      addLog("Loaded API Key from settings.", 'success');
+      setMissingApiKey(false);
+    } else if (envKey) {
+      addLog("Using API Key from environment variables.", 'info');
+      setMissingApiKey(false);
+    } else {
       setMissingApiKey(true);
       setTimeout(() => {
-        addLog("CRITICAL: API Key is missing. Image generation will fail.", 'error');
+        addLog("CRITICAL: API Key is missing. Please configure it in Settings.", 'error');
       }, 500);
-    } else {
-        addLog("Application started. Ready to create characters.", 'success');
     }
+
+    addLog("Application started. Ready to create characters.", 'success');
   }, []);
 
-  // Load history from local storage on mount
+  // Save history to local storage on mount
   useEffect(() => {
     const saved = localStorage.getItem('animefusion_history');
     if (saved) {
@@ -79,19 +95,45 @@ const App: React.FC = () => {
     localStorage.setItem('animefusion_history', JSON.stringify(history));
   }, [history]);
 
+  const handleSaveApiKey = () => {
+    if (tempApiKey.trim()) {
+      localStorage.setItem('user_gemini_api_key', tempApiKey.trim());
+      setUserApiKey(tempApiKey.trim());
+      setMissingApiKey(false);
+      addLog("API Key saved successfully.", 'success');
+      setShowSettings(false);
+    } else {
+      localStorage.removeItem('user_gemini_api_key');
+      setUserApiKey("");
+      
+      const envKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : '';
+      if (!envKey) {
+         setMissingApiKey(true);
+      }
+      addLog("API Key removed.", 'warning');
+      setShowSettings(false);
+    }
+  };
+
+  const getEffectiveApiKey = () => {
+    const envKey = (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : '';
+    return userApiKey || envKey;
+  };
+
   const handleGenerate = async () => {
-    if (typeof process === 'undefined' || !process.env || !process.env.API_KEY) {
-      const msg = "Thiếu API Key. Vui lòng kiểm tra cấu hình môi trường.";
+    const apiKey = getEffectiveApiKey();
+
+    if (!apiKey) {
+      const msg = "Thiếu API Key. Vui lòng vào Cài đặt để nhập Key.";
       setMissingApiKey(true);
+      setShowSettings(true);
       alert(msg);
       addLog(msg, 'error');
       return;
     }
 
     setIsGenerating(true);
-    // Auto open logs on generate to show progress
-    // setIsLogOpen(true); 
-
+    
     try {
       let finalUrl = '';
       let rotationSet: string[] = [];
@@ -106,14 +148,11 @@ const App: React.FC = () => {
         addLog("360° Mode enabled. Generating 3 views (Front, Side, Back)...", 'warning');
         
         // Generate 3 views: Front, Side, Back
-        // We use Promise.all to generate them in parallel for speed
         const viewsToGenerate = [ViewAngle.FRONT, ViewAngle.SIDE, ViewAngle.BACK];
         
         const promises = viewsToGenerate.map(view => {
             const viewConfig = { ...config, view: view };
-            // Log individual prompts for debug
-            // addLog(`Prompt [${view}]: ${buildPrompt(viewConfig)}`, 'info');
-            return generateCharacterImage(viewConfig);
+            return generateCharacterImage(viewConfig, apiKey);
         });
 
         const results = await Promise.all(promises);
@@ -122,7 +161,7 @@ const App: React.FC = () => {
         addLog("Successfully generated all 360° views.", 'success');
       } else {
         // Standard single generation
-        finalUrl = await generateCharacterImage(config);
+        finalUrl = await generateCharacterImage(config, apiKey);
         addLog("Image generated successfully.", 'success');
       }
 
@@ -160,7 +199,7 @@ const App: React.FC = () => {
       }
 
       addLog(`Generation Failed: ${errorMsg}`, 'error', details);
-      alert(`Đã xảy ra lỗi khi tạo hình ảnh. Vui lòng kiểm tra log để biết thêm chi tiết.`);
+      alert(`Đã xảy ra lỗi khi tạo hình ảnh. Vui lòng kiểm tra API Key hoặc Log.`);
     } finally {
       setIsGenerating(false);
     }
@@ -184,25 +223,72 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col lg:flex-row h-screen bg-slate-950 overflow-hidden font-sans relative">
       {/* Missing API Key Warning Banner */}
-      {missingApiKey && (
+      {missingApiKey && !showSettings && (
         <div className="absolute top-0 left-0 right-0 z-[100] bg-red-600/95 backdrop-blur-md text-white px-6 py-4 flex items-center justify-center gap-4 shadow-2xl animate-slideDown border-b border-red-500">
             <div className="bg-white/20 p-3 rounded-full shrink-0 animate-pulse">
                 <AlertTriangle size={28} className="text-white" />
             </div>
             <div className="flex-1 max-w-4xl">
-                <h3 className="font-bold text-xl mb-1">Thiếu Cấu Hình API Key!</h3>
+                <h3 className="font-bold text-xl mb-1">Cần Cấu Hình API Key</h3>
                 <p className="text-sm text-red-100 leading-relaxed">
-                    Ứng dụng không tìm thấy <code>process.env.API_KEY</code>. Tính năng tạo hình ảnh sẽ không hoạt động. 
-                    <br/>Vui lòng cung cấp API Key hợp lệ trong biến môi trường để tiếp tục.
+                    Ứng dụng chưa có Gemini API Key. Vui lòng nhập Key để bắt đầu sáng tạo.
                 </p>
             </div>
             <button 
-                onClick={() => setMissingApiKey(false)} 
-                className="p-2 hover:bg-white/20 rounded-full transition-colors shrink-0"
-                title="Đóng thông báo"
+                onClick={() => setShowSettings(true)} 
+                className="px-4 py-2 bg-white text-red-600 font-bold rounded-lg hover:bg-red-50 transition-colors shadow-lg"
             >
-                <X size={24} />
+                Nhập Key Ngay
             </button>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl animate-slideUp overflow-hidden">
+                <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        <Key className="text-purple-400" /> Cài đặt API
+                    </h3>
+                    <button onClick={() => setShowSettings(false)} className="text-slate-400 hover:text-white">
+                        <X size={24} />
+                    </button>
+                </div>
+                <div className="p-6 space-y-4">
+                    <p className="text-slate-300 text-sm">
+                        Nhập Google Gemini API Key của bạn để sử dụng ứng dụng. 
+                        Key sẽ được lưu trữ an toàn trong trình duyệt của bạn (LocalStorage).
+                    </p>
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">API Key</label>
+                        <input 
+                            type="password" 
+                            value={tempApiKey}
+                            onChange={(e) => setTempApiKey(e.target.value)}
+                            placeholder="AIzaSy..."
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-purple-500 outline-none font-mono"
+                        />
+                    </div>
+                    <div className="bg-slate-800/50 p-3 rounded border border-slate-700/50 text-xs text-slate-400">
+                        <span className="text-purple-400 font-bold">Lưu ý:</span> Bạn có thể lấy API Key miễn phí tại <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">Google AI Studio</a>.
+                    </div>
+                </div>
+                <div className="p-6 border-t border-slate-800 bg-slate-800/30 flex justify-end gap-3">
+                    <button 
+                        onClick={() => setShowSettings(false)}
+                        className="px-4 py-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+                    >
+                        Hủy bỏ
+                    </button>
+                    <button 
+                        onClick={handleSaveApiKey}
+                        className="px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold rounded-lg shadow-lg flex items-center gap-2"
+                    >
+                        <Save size={18} /> Lưu Cấu Hình
+                    </button>
+                </div>
+            </div>
         </div>
       )}
 
@@ -214,6 +300,7 @@ const App: React.FC = () => {
         enable360={enable360}
         setEnable360={setEnable360}
         addLog={addLog}
+        onOpenSettings={() => setShowSettings(true)}
       />
       <div className="flex-1 flex flex-col relative h-full overflow-hidden">
         <PreviewArea 

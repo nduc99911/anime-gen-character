@@ -2,8 +2,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { CharacterConfig, ArtStyle, ViewAngle } from "../types";
 
-// Initialize the client strictly according to guidelines
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Remove global initialization to support dynamic user API keys
+// const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const buildPrompt = (config: CharacterConfig): string => {
   let stylePrompt = "";
@@ -67,8 +67,15 @@ export const buildPrompt = (config: CharacterConfig): string => {
   `.trim();
 };
 
-export const generateCharacterImage = async (config: CharacterConfig): Promise<string> => {
+export const generateCharacterImage = async (config: CharacterConfig, apiKey: string): Promise<string> => {
+  if (!apiKey) {
+    throw new Error("API Key is missing. Please provide a valid Gemini API Key.");
+  }
+
   try {
+    // Initialize the client with the provided key for this specific request
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+    
     const prompt = buildPrompt(config);
     
     // Using gemini-2.5-flash-image as requested for general image generation tasks

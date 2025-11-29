@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArtStyle, CharacterConfig, ViewAngle, SavedPreset, LogLevel } from '../types';
 import { HAIR_STYLES, CLOTHING_STYLES, ACCESSORIES, POSES, BACKGROUNDS, EXPRESSIONS, LIGHTING_STYLES, LIGHTING_COLORS, SPECIAL_EFFECTS } from '../constants';
-import { Palette, Box, User, Shirt, Camera, Smile, Map, Sparkles, Rotate3d, Save, FolderOpen, Trash2, Plus, X, Check, Lightbulb, Wand2 } from 'lucide-react';
+import { Palette, Box, User, Shirt, Camera, Smile, Map, Sparkles, Rotate3d, Save, FolderOpen, Trash2, Plus, X, Check, Lightbulb, Wand2, Mic, Settings } from 'lucide-react';
 
 interface ControlPanelProps {
   config: CharacterConfig;
@@ -12,12 +12,15 @@ interface ControlPanelProps {
   enable360: boolean;
   setEnable360: (enable: boolean) => void;
   addLog: (msg: string, level?: LogLevel, details?: string) => void;
+  onOpenSettings: () => void;
 }
 
-const ControlPanel: React.FC<ControlPanelProps> = ({ config, setConfig, onGenerate, isGenerating, enable360, setEnable360, addLog }) => {
+const ControlPanel: React.FC<ControlPanelProps> = ({ config, setConfig, onGenerate, isGenerating, enable360, setEnable360, addLog, onOpenSettings }) => {
   const [presets, setPresets] = useState<SavedPreset[]>([]);
   const [isSaveMode, setIsSaveMode] = useState(false);
   const [newPresetName, setNewPresetName] = useState("");
+  const [isListening, setIsListening] = useState(false);
+  const [activeFieldForVoice, setActiveFieldForVoice] = useState<string | null>(null);
 
   // Load presets on mount
   useEffect(() => {
@@ -31,6 +34,53 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ config, setConfig, onGenera
       }
     }
   }, []);
+
+  // Voice Input Logic
+  const handleVoiceInput = (fieldName: string) => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      alert("Trình duyệt của bạn không hỗ trợ nhận diện giọng nói.");
+      return;
+    }
+
+    // @ts-ignore
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+
+    recognition.lang = 'vi-VN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setActiveFieldForVoice(fieldName);
+      addLog("Đang nghe...", 'info');
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      addLog(`Voice input: "${transcript}"`, 'success');
+      
+      if (fieldName === 'presetName') {
+        setNewPresetName(transcript);
+      } else if (fieldName === 'customPose') {
+        setConfig(prev => ({ ...prev, customPose: transcript }));
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      addLog(`Lỗi nhận diện giọng nói: ${event.error}`, 'error');
+      setIsListening(false);
+      setActiveFieldForVoice(null);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      setActiveFieldForVoice(null);
+    };
+
+    recognition.start();
+  };
+
 
   // Save logic
   const handleSavePreset = () => {
@@ -79,11 +129,20 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ config, setConfig, onGenera
 
   return (
     <div className="w-full lg:w-96 bg-slate-900 border-r border-slate-700 flex flex-col h-full overflow-hidden shrink-0">
-      <div className="p-6 border-b border-slate-700 bg-slate-900 z-10">
-        <h1 className="text-2xl font-bold bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent mb-1">
-          AnimeFusion
-        </h1>
-        <p className="text-slate-400 text-xs">Studio Sáng Tạo Nhân Vật Vô Hạn</p>
+      <div className="p-6 border-b border-slate-700 bg-slate-900 z-10 flex justify-between items-start">
+        <div>
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent mb-1">
+            AnimeFusion
+          </h1>
+          <p className="text-slate-400 text-xs">Studio Sáng Tạo Nhân Vật Vô Hạn</p>
+        </div>
+        <button 
+          onClick={onOpenSettings}
+          className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+          title="Cài đặt API Key"
+        >
+          <Settings size={18} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
@@ -107,14 +166,23 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ config, setConfig, onGenera
 
           {isSaveMode && (
             <div className="flex items-center gap-2 mb-4 animate-fadeIn">
-              <input
-                type="text"
-                value={newPresetName}
-                onChange={(e) => setNewPresetName(e.target.value)}
-                placeholder="Đặt tên cấu hình..."
-                className="flex-1 bg-slate-800 border border-slate-600 rounded text-xs px-3 py-2 text-white outline-none focus:border-purple-500"
-                autoFocus
-              />
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={newPresetName}
+                  onChange={(e) => setNewPresetName(e.target.value)}
+                  placeholder="Đặt tên cấu hình..."
+                  className="w-full bg-slate-800 border border-slate-600 rounded text-xs pl-3 pr-8 py-2 text-white outline-none focus:border-purple-500"
+                  autoFocus
+                />
+                <button 
+                   onClick={() => handleVoiceInput('presetName')}
+                   className={`absolute right-1 top-1/2 transform -translate-y-1/2 p-1 rounded-full hover:bg-slate-700 ${isListening && activeFieldForVoice === 'presetName' ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}
+                   title="Nhập bằng giọng nói"
+                >
+                  <Mic size={12} />
+                </button>
+              </div>
               <button 
                 onClick={handleSavePreset}
                 disabled={!newPresetName.trim()}
@@ -324,13 +392,20 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ config, setConfig, onGenera
               </select>
               
               {config.pose === "Tự do sáng tạo (Nhập mô tả)" && (
-                <div className="mt-2 animate-fadeIn">
+                <div className="mt-2 animate-fadeIn relative">
                   <textarea
                     value={config.customPose || ''}
                     onChange={(e) => handleChange('customPose', e.target.value)}
                     placeholder="Mô tả tư thế bạn muốn (vd: Bay lơ lửng, cầm quyền trượng hướng về phía trước...)"
-                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500 h-20 resize-none"
+                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500 h-20 resize-none pr-8"
                   />
+                  <button 
+                     onClick={() => handleVoiceInput('customPose')}
+                     className={`absolute right-2 bottom-2 p-1.5 rounded-full bg-slate-700 hover:bg-slate-600 transition-colors ${isListening && activeFieldForVoice === 'customPose' ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}
+                     title="Nhập bằng giọng nói"
+                  >
+                    <Mic size={14} />
+                  </button>
                 </div>
               )}
             </div>
