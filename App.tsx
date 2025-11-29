@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import ControlPanel from './components/ControlPanel';
 import PreviewArea from './components/PreviewArea';
 import LogViewer from './components/LogViewer';
 import { ArtStyle, CharacterConfig, GeneratedImage, ViewAngle, LogEntry, LogLevel } from './types';
 import { generateCharacterImage, buildPrompt } from './services/geminiService';
+import { AlertTriangle, X } from 'lucide-react';
 
 const App: React.FC = () => {
   const [config, setConfig] = useState<CharacterConfig>({
@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [enable360, setEnable360] = useState<boolean>(false);
   const [history, setHistory] = useState<GeneratedImage[]>([]);
+  const [missingApiKey, setMissingApiKey] = useState(false);
   
   // Log State
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -46,6 +47,18 @@ const App: React.FC = () => {
 
   const clearLogs = () => setLogs([]);
 
+  // Check for API Key on mount
+  useEffect(() => {
+    if (!process.env.API_KEY) {
+      setMissingApiKey(true);
+      setTimeout(() => {
+        addLog("CRITICAL: API Key is missing. Image generation will fail.", 'error');
+      }, 500);
+    } else {
+        addLog("Application started. Ready to create characters.", 'success');
+    }
+  }, []);
+
   // Load history from local storage on mount
   useEffect(() => {
     const saved = localStorage.getItem('animefusion_history');
@@ -57,8 +70,6 @@ const App: React.FC = () => {
         console.error("Failed to parse history", e);
         addLog("Failed to load history from LocalStorage", 'error');
       }
-    } else {
-        addLog("Application started. Ready to create characters.", 'success');
     }
   }, []);
 
@@ -70,6 +81,7 @@ const App: React.FC = () => {
   const handleGenerate = async () => {
     if (!process.env.API_KEY) {
       const msg = "Thiếu API Key. Vui lòng kiểm tra cấu hình môi trường.";
+      setMissingApiKey(true);
       alert(msg);
       addLog(msg, 'error');
       return;
@@ -150,7 +162,30 @@ const App: React.FC = () => {
   const currentImageObj = history.find(item => item.id === currentImageId) || null;
 
   return (
-    <div className="flex flex-col lg:flex-row h-screen bg-slate-950 overflow-hidden font-sans">
+    <div className="flex flex-col lg:flex-row h-screen bg-slate-950 overflow-hidden font-sans relative">
+      {/* Missing API Key Warning Banner */}
+      {missingApiKey && (
+        <div className="absolute top-0 left-0 right-0 z-[100] bg-red-600/95 backdrop-blur-md text-white px-6 py-4 flex items-center justify-center gap-4 shadow-2xl animate-slideDown border-b border-red-500">
+            <div className="bg-white/20 p-3 rounded-full shrink-0 animate-pulse">
+                <AlertTriangle size={28} className="text-white" />
+            </div>
+            <div className="flex-1 max-w-4xl">
+                <h3 className="font-bold text-xl mb-1">Thiếu Cấu Hình API Key!</h3>
+                <p className="text-sm text-red-100 leading-relaxed">
+                    Ứng dụng không tìm thấy <code>process.env.API_KEY</code>. Tính năng tạo hình ảnh sẽ không hoạt động. 
+                    <br/>Vui lòng cung cấp API Key hợp lệ trong biến môi trường để tiếp tục.
+                </p>
+            </div>
+            <button 
+                onClick={() => setMissingApiKey(false)} 
+                className="p-2 hover:bg-white/20 rounded-full transition-colors shrink-0"
+                title="Đóng thông báo"
+            >
+                <X size={24} />
+            </button>
+        </div>
+      )}
+
       <ControlPanel 
         config={config} 
         setConfig={setConfig} 
